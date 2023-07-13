@@ -255,8 +255,7 @@ func (prometheusCodec) EncodeRequest(ctx context.Context, r tripperware.Request)
 		}
 	}
 
-	// Always ask gzip to the querier
-	h.Set("Accept-Encoding", "gzip")
+	h.Set("Accept-Encoding", "snappy")
 
 	req := &http.Request{
 		Method:     "GET",
