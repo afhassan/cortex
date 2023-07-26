@@ -119,6 +119,7 @@ func NewQueryTripperware(
 	// Start cleanup. If cleaner stops or fail, we will simply not clean the metrics for inactive users.
 	_ = activeUsers.StartAsync(context.Background())
 	return func(next http.RoundTripper) http.RoundTripper {
+		level.Info(log).Log("msg", "request invoked selecting a roundtripper")
 		// Finally, if the user selected any query middleware, stitch it in.
 		if len(queryRangeMiddleware) > 0 || len(instantRangeMiddleware) > 0 {
 			queryrange := NewRoundTripper(next, queryRangeCodec, forwardHeaders, queryRangeMiddleware...)
@@ -142,6 +143,7 @@ func NewQueryTripperware(
 				queriesPerTenant.WithLabelValues(op, userStr).Inc()
 
 				if isQueryRange {
+					level.Info(log).Log("msg", "query range Codec roundtripper selected")
 					return queryrange.RoundTrip(r)
 				} else if isQuery {
 					query := r.FormValue("query")
@@ -149,8 +151,10 @@ func NewQueryTripperware(
 					if err := SubQueryStepSizeCheck(query, defaultSubQueryInterval, MaxStep); err != nil {
 						return nil, err
 					}
+					level.Info(log).Log("msg", "instant query Codec roundtripper selected")
 					return instantQuery.RoundTrip(r)
 				}
+				level.Info(log).Log("msg", "no codec selected for roundtripper")
 				return next.RoundTrip(r)
 			})
 		}

@@ -398,6 +398,7 @@ func (api *API) options(*http.Request) apiFuncResult {
 }
 
 func (api *API) query(r *http.Request) (result apiFuncResult) {
+	level.Info(api.logger).Log("msg", "old prometheus api Query function invoked")
 	ts, err := parseTimeParam(r, "time", api.now())
 	if err != nil {
 		return invalidParamError(err, "time")
@@ -477,6 +478,7 @@ func extractQueryOpts(r *http.Request) (*promql.QueryOpts, error) {
 }
 
 func (api *API) queryRange(r *http.Request) (result apiFuncResult) {
+	level.Info(api.logger).Log("msg", "old prometheus api QueryRange function invoked")
 	start, err := parseTime(r.FormValue("start"))
 	if err != nil {
 		return invalidParamError(err, "start")

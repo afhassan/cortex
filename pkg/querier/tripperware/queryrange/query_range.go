@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"github.com/go-kit/log/level"
 	"github.com/gogo/protobuf/proto"
 	"io"
 	"math"
@@ -282,6 +283,7 @@ func (prometheusCodec) DecodeResponse(ctx context.Context, r *http.Response, _ t
 	}
 	log.LogFields(otlog.Int("bytes", len(buf)))
 
+	level.Info(log).Log("msg", "query range protobuf response unmarshalled")
 	var resp PrometheusResponse
 	if err := proto.Unmarshal(buf, &resp); err != nil {
 		return nil, httpgrpc.Errorf(http.StatusInternalServerError, "error decoding response: %v", err)

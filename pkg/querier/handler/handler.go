@@ -145,6 +145,7 @@ func invalidParamError(err error, parameter string) ApiFuncResult {
 }
 
 func (api *API) Query(r *http.Request) (result ApiFuncResult) {
+	level.Info(api.Logger).Log("msg", "Query function invoked")
 	ts, err := parseTimeParam(r, "time", api.Now())
 	if err != nil {
 		return invalidParamError(err, "time")
@@ -215,6 +216,7 @@ func extractQueryOpts(r *http.Request) (*promql.QueryOpts, error) {
 }
 
 func (api *API) QueryRange(r *http.Request) (result ApiFuncResult) {
+	level.Info(api.Logger).Log("msg", "QueryRange function invoked")
 	start, err := parseTime(r.FormValue("start"))
 	if err != nil {
 		return invalidParamError(err, "start")
@@ -328,6 +330,7 @@ var (
 )
 
 func (api *API) Respond(w http.ResponseWriter, data interface{}, warnings storage.Warnings) {
+	level.Info(api.Logger).Log("msg", "Respond function invoked")
 	statusMessage := statusSuccess
 	var warningStrings []string
 	for _, warning := range warnings {
@@ -363,6 +366,7 @@ func (api *API) Respond(w http.ResponseWriter, data interface{}, warnings storag
 }
 
 func (api *API) RespondError(w http.ResponseWriter, apiErr *apiError, data interface{}) {
+	level.Info(api.Logger).Log("msg", "RespondError function invoked")
 	json := jsoniter.ConfigCompatibleWithStandardLibrary
 	b, err := json.Marshal(&response{
 		Status:    statusError,

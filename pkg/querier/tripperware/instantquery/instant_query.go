@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"github.com/go-kit/log/level"
 	"github.com/gogo/protobuf/proto"
 	"io"
 	"net/http"
@@ -173,6 +174,7 @@ func (instantQueryCodec) DecodeResponse(ctx context.Context, r *http.Response, _
 		return nil, httpgrpc.Errorf(r.StatusCode, string(buf))
 	}
 
+	level.Info(log).Log("msg", "instant query protobuf response unmarshalled")
 	var resp PrometheusInstantQueryResponse
 	if err := proto.Unmarshal(buf, &resp); err != nil {
 		return nil, httpgrpc.Errorf(http.StatusInternalServerError, "error decoding response: %v", err)
