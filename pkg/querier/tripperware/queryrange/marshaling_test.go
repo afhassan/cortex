@@ -3,6 +3,7 @@ package queryrange
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"github.com/gogo/protobuf/proto"
 	io "io"
 	"math/rand"
@@ -16,27 +17,38 @@ import (
 )
 
 func BenchmarkPrometheusCodec_DecodeResponse(b *testing.B) {
-	const (
-		numSeries           = 1000
-		numSamplesPerSeries = 1000
-	)
+	for _, enableProtobuf := range []bool{true, false} {
+		b.Run(fmt.Sprintf("protobuf encoding %t [decode response benchmark]", enableProtobuf), func(b *testing.B) {
+			codec := NewPrometheusCodec(false, "", enableProtobuf)
+			const (
+				numSeries           = 1000
+				numSamplesPerSeries = 1000
+			)
 
-	// Generate a mocked response and marshal it.
-	res := mockPrometheusResponse(numSeries, numSamplesPerSeries)
-	encodedRes, err := proto.Marshal(res)
-	require.NoError(b, err)
-	b.Log("test prometheus response size:", len(encodedRes))
+			// Generate a mocked response and marshal it.
+			res := mockPrometheusResponse(numSeries, numSamplesPerSeries)
+			var buf []byte
+			var err error
+			if enableProtobuf {
+				buf, err = proto.Marshal(res)
+			} else {
+				buf, err = json.Marshal(res)
+			}
+			require.NoError(b, err)
+			b.Log("test prometheus response size:", len(buf))
 
-	b.ResetTimer()
-	b.ReportAllocs()
+			b.ResetTimer()
+			b.ReportAllocs()
 
-	for n := 0; n < b.N; n++ {
-		_, err := PrometheusCodec.DecodeResponse(context.Background(), &http.Response{
-			StatusCode:    200,
-			Body:          io.NopCloser(bytes.NewReader(encodedRes)),
-			ContentLength: int64(len(encodedRes)),
-		}, nil)
-		require.NoError(b, err)
+			for n := 0; n < b.N; n++ {
+				_, err := codec.DecodeResponse(context.Background(), &http.Response{
+					StatusCode:    200,
+					Body:          io.NopCloser(bytes.NewReader(buf)),
+					ContentLength: int64(len(buf)),
+				}, nil)
+				require.NoError(b, err)
+			}
+		})
 	}
 }
 

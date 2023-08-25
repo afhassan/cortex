@@ -33,7 +33,7 @@ func TestRoundTrip(t *testing.T) {
 				var err error
 				if r.RequestURI == query {
 					resp := parsedResponse
-					resp.Headers = respHeaders
+					resp.Headers = protobufRespHeaders
 					protobuf, err := proto.Marshal(resp)
 					require.NoError(t, err)
 					_, err = w.Write(protobuf)

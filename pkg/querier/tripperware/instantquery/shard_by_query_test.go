@@ -26,9 +26,6 @@ import (
 )
 
 func Test_shardQuery(t *testing.T) {
-	shardedPrometheusCodec := queryrange.NewPrometheusCodec(true, "", true)
-	instantQueryCodec := InstantQueryCodec
-
 	type queries struct {
 		name           string
 		expression     string
@@ -287,7 +284,6 @@ http_requests_total`,
 		path                  string
 		isShardable           bool
 		shardSize             int
-		codec                 tripperware.Codec
 		instantQueryResponses []*PrometheusInstantQueryResponse
 		queryRangeResponses   []*queryrange.PrometheusResponse
 		response              string
@@ -298,7 +294,6 @@ http_requests_total`,
 			name:           "should shard range query when query is shardable",
 			path:           `/api/v1/query_range?end=1&start=0&step=120&query=sum(metric) by (pod,cluster_name)`,
 			isShardable:    true,
-			codec:          shardedPrometheusCodec,
 			shardingLabels: []string{"pod", "cluster_name"},
 			shardSize:      2,
 			queryRangeResponses: []*queryrange.PrometheusResponse{
@@ -330,9 +325,6 @@ http_requests_total`,
 							},
 						},
 					},
-					Headers: []*tripperware.PrometheusResponseHeader{
-						{Name: "Content-Type", Values: []string{"application/x-protobuf"}},
-					},
 				},
 				{
 					Status: "success",
@@ -362,9 +354,6 @@ http_requests_total`,
 							},
 						},
 					},
-					Headers: []*tripperware.PrometheusResponseHeader{
-						{Name: "Content-Type", Values: []string{"application/x-protobuf"}},
-					},
 				},
 			},
 			response: `{"status":"success","data":{"resultType":"matrix","result":[{"metric":{"__job__":"a","__name__":"metric"},"values":[[1,"1"],[2,"2"],[3,"3"]]},{"metric":{"__job__":"b","__name__":"metric"},"values":[[1,"1"],[2,"2"],[3,"3"]]}],"stats":{"samples":{"totalQueryableSamples":12,"totalQueryableSamplesPerStep":[[1,2],[2,4],[3,6]]}}}}`,
@@ -372,7 +361,6 @@ http_requests_total`,
 		{
 			name:           "should shard instant query when query is shardable",
 			path:           `/api/v1/query?time=120&query=sum(metric) by (pod,cluster_name)`,
-			codec:          instantQueryCodec,
 			shardSize:      2,
 			shardingLabels: []string{"pod", "cluster_name"},
 			isShardable:    true,
@@ -405,9 +393,6 @@ http_requests_total`,
 							},
 						},
 					},
-					Headers: []*tripperware.PrometheusResponseHeader{
-						{Name: "Content-Type", Values: []string{"application/x-protobuf"}},
-					},
 				},
 				{
 					Status: "success",
@@ -437,9 +422,6 @@ http_requests_total`,
 							},
 						},
 					},
-					Headers: []*tripperware.PrometheusResponseHeader{
-						{Name: "Content-Type", Values: []string{"application/x-protobuf"}},
-					},
 				},
 			},
 			response: `{"status":"success","data":{"resultType":"vector","result":[{"metric":{"__name__":"up","job":"bar"},"value":[2,"2"]},{"metric":{"__name__":"up","job":"foo"},"value":[1,"1"]}],"stats":{"samples":{"totalQueryableSamples":20,"totalQueryableSamplesPerStep":[[1,20]]}}}}`,
@@ -447,7 +429,6 @@ http_requests_total`,
 		{
 			name:        "should not shard if shard size is 1",
 			path:        `/api/v1/query?time=120&query=sum(metric) by (pod,cluster_name)`,
-			codec:       instantQueryCodec,
 			shardSize:   1,
 			isShardable: false,
 			instantQueryResponses: []*PrometheusInstantQueryResponse{
@@ -479,9 +460,6 @@ http_requests_total`,
 							},
 						},
 					},
-					Headers: []*tripperware.PrometheusResponseHeader{
-						{Name: "Content-Type", Values: []string{"application/x-protobuf"}},
-					},
 				},
 			},
 			response: `{"status":"success","data":{"resultType":"vector","result":[{"metric":{"__name__":"up","job":"foo"},"value":[1,"1"]}],"stats":{"samples":{"totalQueryableSamples":10,"totalQueryableSamplesPerStep":[[1,10]]}}}}`,
@@ -491,7 +469,6 @@ http_requests_total`,
 		tests = append(tests, testCase{
 			name:        fmt.Sprintf("non shardable query: %s", query.name),
 			path:        fmt.Sprintf(`/api/v1/query?time=120&query=%s`, url.QueryEscape(query.expression)),
-			codec:       instantQueryCodec,
 			isShardable: false,
 			instantQueryResponses: []*PrometheusInstantQueryResponse{
 				{
@@ -522,9 +499,6 @@ http_requests_total`,
 							},
 						},
 					},
-					Headers: []*tripperware.PrometheusResponseHeader{
-						{Name: "Content-Type", Values: []string{"application/x-protobuf"}},
-					},
 				},
 			},
 			response: `{"status":"success","data":{"resultType":"vector","result":[{"metric":{"__name__":"up","job":"foo"},"value":[1,"1"]}],"stats":{"samples":{"totalQueryableSamples":10,"totalQueryableSamplesPerStep":[[1,10]]}}}}`,
@@ -532,7 +506,6 @@ http_requests_total`,
 		tests = append(tests, testCase{
 			name:        fmt.Sprintf("non shardable query_range: %s", query.name),
 			path:        fmt.Sprintf(`/api/v1/query_range?start=1&end=2&step=1&query=%s`, url.QueryEscape(query.expression)),
-			codec:       shardedPrometheusCodec,
 			isShardable: false,
 			queryRangeResponses: []*queryrange.PrometheusResponse{
 				{
@@ -563,9 +536,6 @@ http_requests_total`,
 							},
 						},
 					},
-					Headers: []*tripperware.PrometheusResponseHeader{
-						{Name: "Content-Type", Values: []string{"application/x-protobuf"}},
-					},
 				},
 			},
 			response: `{"status":"success","data":{"resultType":"matrix","result":[{"metric":{"__job__":"a","__name__":"metric"},"values":[[1,"1"],[2,"2"],[3,"3"]]}],"stats":{"samples":{"totalQueryableSamples":6,"totalQueryableSamplesPerStep":[[1,1],[2,2],[3,3]]}}}}`,
@@ -576,7 +546,6 @@ http_requests_total`,
 		tests = append(tests, testCase{
 			name:           fmt.Sprintf("shardable query: %s", query.name),
 			path:           fmt.Sprintf(`/api/v1/query?time=120&query=%s`, url.QueryEscape(query.expression)),
-			codec:          instantQueryCodec,
 			isShardable:    true,
 			shardSize:      2,
 			shardingLabels: query.shardingLabels,
@@ -608,9 +577,6 @@ http_requests_total`,
 								TotalQueryableSamples: 10,
 							},
 						},
-					},
-					Headers: []*tripperware.PrometheusResponseHeader{
-						{Name: "Content-Type", Values: []string{"application/x-protobuf"}},
 					},
 				},
 				{
@@ -641,9 +607,6 @@ http_requests_total`,
 							},
 						},
 					},
-					Headers: []*tripperware.PrometheusResponseHeader{
-						{Name: "Content-Type", Values: []string{"application/x-protobuf"}},
-					},
 				},
 			},
 			response: `{"status":"success","data":{"resultType":"vector","result":[{"metric":{"__name__":"up","job":"bar"},"value":[2,"2"]},{"metric":{"__name__":"up","job":"foo"},"value":[1,"1"]}],"stats":{"samples":{"totalQueryableSamples":20,"totalQueryableSamplesPerStep":[[1,20]]}}}}`,
@@ -651,7 +614,6 @@ http_requests_total`,
 		tests = append(tests, testCase{
 			name:           fmt.Sprintf("shardable query_range: %s", query.name),
 			path:           fmt.Sprintf(`/api/v1/query_range?start=1&end=2&step=1&query=%s`, url.QueryEscape(query.expression)),
-			codec:          shardedPrometheusCodec,
 			isShardable:    true,
 			shardSize:      2,
 			shardingLabels: query.shardingLabels,
@@ -684,9 +646,6 @@ http_requests_total`,
 							},
 						},
 					},
-					Headers: []*tripperware.PrometheusResponseHeader{
-						{Name: "Content-Type", Values: []string{"application/x-protobuf"}},
-					},
 				},
 				{
 					Status: "success",
@@ -716,9 +675,6 @@ http_requests_total`,
 							},
 						},
 					},
-					Headers: []*tripperware.PrometheusResponseHeader{
-						{Name: "Content-Type", Values: []string{"application/x-protobuf"}},
-					},
 				},
 			},
 			response: `{"status":"success","data":{"resultType":"matrix","result":[{"metric":{"__job__":"a","__name__":"metric"},"values":[[1,"1"],[2,"2"],[3,"3"]]},{"metric":{"__job__":"b","__name__":"metric"},"values":[[1,"1"],[2,"2"],[3,"3"]]}],"stats":{"samples":{"totalQueryableSamples":12,"totalQueryableSamplesPerStep":[[1,2],[2,4],[3,6]]}}}}`,
@@ -729,7 +685,6 @@ http_requests_total`,
 		tests = append(tests, testCase{
 			name:           fmt.Sprintf("shardable query: %s", query.name),
 			path:           fmt.Sprintf(`/api/v1/query?time=120&query=%s`, url.QueryEscape(query.expression)),
-			codec:          instantQueryCodec,
 			isShardable:    true,
 			shardSize:      2,
 			shardingLabels: query.shardingLabels,
@@ -764,9 +719,6 @@ http_requests_total`,
 							},
 						},
 					},
-					Headers: []*tripperware.PrometheusResponseHeader{
-						{Name: "Content-Type", Values: []string{"application/x-protobuf"}},
-					},
 				},
 				{
 					Status: "success",
@@ -798,9 +750,6 @@ http_requests_total`,
 							},
 						},
 					},
-					Headers: []*tripperware.PrometheusResponseHeader{
-						{Name: "Content-Type", Values: []string{"application/x-protobuf"}},
-					},
 				},
 			},
 			response: `{"status":"success","data":{"resultType":"matrix","result":[{"metric":{"__name__":"up","job":"bar"},"values":[[2,"2"]]},{"metric":{"__name__":"up","job":"foo"},"values":[[1,"1"]]}],"stats":{"samples":{"totalQueryableSamples":20,"totalQueryableSamplesPerStep":[[1,20]]}}}}`,
@@ -808,72 +757,88 @@ http_requests_total`,
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			//parallel testing causes data race
-			sort.Strings(tt.shardingLabels)
-			s := httptest.NewServer(
-				http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-					q := r.FormValue("query")
-					expr, _ := parser.ParseExpr(q)
-					shardIndex := int64(0)
+		for _, enableProtobuf := range []bool{true, false} {
+			t.Run(fmt.Sprintf("protobuf encoding %t [%s]", enableProtobuf, tt.name), func(t *testing.T) {
+				//parallel testing causes data race
+				var codec tripperware.Codec
+				if tt.instantQueryResponses != nil {
+					codec = NewInstantQueryCodec("", enableProtobuf)
+				} else {
+					codec = queryrange.NewPrometheusCodec(true, "", enableProtobuf)
+				}
 
-					parser.Inspect(expr, func(n parser.Node, _ []parser.Node) error {
-						if selector, ok := n.(*parser.VectorSelector); ok {
-							for _, matcher := range selector.LabelMatchers {
-								if matcher.Name == querysharding.CortexShardByLabel {
+				sort.Strings(tt.shardingLabels)
+				s := httptest.NewServer(
+					http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+						q := r.FormValue("query")
+						expr, _ := parser.ParseExpr(q)
+						shardIndex := int64(0)
 
-									decoded, _ := base64.StdEncoding.DecodeString(matcher.Value)
-									shardInfo := storepb.ShardInfo{}
-									err := shardInfo.Unmarshal(decoded)
-									require.NoError(t, err)
-									sort.Strings(shardInfo.Labels)
-									require.Equal(t, tt.shardingLabels, shardInfo.Labels)
-									require.Equal(t, tt.isShardable, shardInfo.TotalShards > 0)
-									shardIndex = shardInfo.ShardIndex
+						parser.Inspect(expr, func(n parser.Node, _ []parser.Node) error {
+							if selector, ok := n.(*parser.VectorSelector); ok {
+								for _, matcher := range selector.LabelMatchers {
+									if matcher.Name == querysharding.CortexShardByLabel {
+										decoded, _ := base64.StdEncoding.DecodeString(matcher.Value)
+										shardInfo := storepb.ShardInfo{}
+										err := shardInfo.Unmarshal(decoded)
+										require.NoError(t, err)
+										sort.Strings(shardInfo.Labels)
+										require.Equal(t, tt.shardingLabels, shardInfo.Labels)
+										require.Equal(t, tt.isShardable, shardInfo.TotalShards > 0)
+										shardIndex = shardInfo.ShardIndex
+									}
 								}
 							}
+							return nil
+						})
+						var b []byte
+						var err error
+						if enableProtobuf {
+							if tt.instantQueryResponses != nil {
+								b, err = proto.Marshal(tt.instantQueryResponses[shardIndex])
+							} else {
+								b, err = proto.Marshal(tt.queryRangeResponses[shardIndex])
+							}
+						} else {
+							if tt.instantQueryResponses != nil {
+								b, err = json.Marshal(tt.instantQueryResponses[shardIndex])
+							} else {
+								b, err = json.Marshal(tt.queryRangeResponses[shardIndex])
+							}
 						}
-						return nil
-					})
-					if tt.instantQueryResponses != nil {
-						protobuf, err := proto.Marshal(tt.instantQueryResponses[shardIndex])
 						require.NoError(t, err)
-						_, _ = w.Write(protobuf)
-					} else {
-						protobuf, err := proto.Marshal(tt.queryRangeResponses[shardIndex])
-						require.NoError(t, err)
-						_, _ = w.Write(protobuf)
-					}
-				}),
-			)
-			defer s.Close()
+						_, _ = w.Write(b)
+					}),
+				)
+				defer s.Close()
 
-			u, err := url.Parse(s.URL)
-			require.NoError(t, err)
+				u, err := url.Parse(s.URL)
+				require.NoError(t, err)
 
-			downstream := tripperware.SingleHostRoundTripper{
-				Host: u.Host,
-				Next: http.DefaultTransport,
-			}
+				downstream := tripperware.SingleHostRoundTripper{
+					Host: u.Host,
+					Next: http.DefaultTransport,
+				}
 
-			qa := thanosquerysharding.NewQueryAnalyzer()
-			roundtripper := tripperware.NewRoundTripper(downstream, tt.codec, nil, tripperware.ShardByMiddleware(log.NewNopLogger(), tripperware.MockLimits{ShardSize: tt.shardSize}, tt.codec, qa))
+				qa := thanosquerysharding.NewQueryAnalyzer()
+				roundtripper := tripperware.NewRoundTripper(downstream, codec, nil, tripperware.ShardByMiddleware(log.NewNopLogger(), tripperware.MockLimits{ShardSize: tt.shardSize}, codec, qa))
 
-			ctx := user.InjectOrgID(context.Background(), "1")
+				ctx := user.InjectOrgID(context.Background(), "1")
 
-			req, err := http.NewRequest("GET", tt.path, http.NoBody)
-			req = req.WithContext(ctx)
+				req, err := http.NewRequest("GET", tt.path, http.NoBody)
+				req = req.WithContext(ctx)
 
-			require.NoError(t, err)
-			resp, err := roundtripper.RoundTrip(req)
+				require.NoError(t, err)
+				resp, err := roundtripper.RoundTrip(req)
 
-			require.NoError(t, err)
-			require.NotNil(t, resp)
+				require.NoError(t, err)
+				require.NotNil(t, resp)
 
-			contents, err := io.ReadAll(resp.Body)
-			require.NoError(t, err)
-			require.Equal(t, tt.response, string(contents))
-		})
+				contents, err := io.ReadAll(resp.Body)
+				require.NoError(t, err)
+				require.Equal(t, tt.response, string(contents))
+			})
+		}
 	}
 
 }

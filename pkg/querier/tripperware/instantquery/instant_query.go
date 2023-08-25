@@ -32,7 +32,9 @@ import (
 )
 
 var (
-	InstantQueryCodec tripperware.Codec = NewInstantQueryCodec("", true)
+	// TODO: remove codecs from here
+	InstantQueryCodec         tripperware.Codec = NewInstantQueryCodec("", false)
+	ProtobufInstantQueryCodec tripperware.Codec = NewInstantQueryCodec("", true)
 
 	json = jsoniter.Config{
 		EscapeHTML:             false, // No HTML in our responses.
@@ -167,7 +169,7 @@ func (c instantQueryCodec) DecodeRequest(_ context.Context, r *http.Request, for
 	return &result, nil
 }
 
-func (instantQueryCodec) DecodeResponse(ctx context.Context, r *http.Response, _ tripperware.Request) (tripperware.Response, error) {
+func (c instantQueryCodec) DecodeResponse(ctx context.Context, r *http.Response, _ tripperware.Request) (tripperware.Response, error) {
 	log, ctx := spanlogger.New(ctx, "PrometheusInstantQueryResponse") //nolint:ineffassign,staticcheck
 	defer log.Finish()
 
@@ -185,7 +187,13 @@ func (instantQueryCodec) DecodeResponse(ctx context.Context, r *http.Response, _
 	}
 
 	var resp PrometheusInstantQueryResponse
-	if err := proto.Unmarshal(buf, &resp); err != nil {
+	if c.enableProtobuf {
+		err = proto.Unmarshal(buf, &resp)
+	} else {
+		err = json.Unmarshal(buf, &resp)
+	}
+
+	if err != nil {
 		return nil, httpgrpc.Errorf(http.StatusInternalServerError, "error decoding response: %v", err)
 	}
 

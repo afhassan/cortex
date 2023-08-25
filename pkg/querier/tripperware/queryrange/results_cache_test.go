@@ -57,7 +57,13 @@ var (
 		Query:          "sum(container_memory_rss) by (namespace)",
 		CachingOptions: CachingOptions{Disabled: true},
 	}
-	respHeaders = []*tripperware.PrometheusResponseHeader{
+	protobufRespHeaders = []*tripperware.PrometheusResponseHeader{
+		{
+			Name:   "Content-Type",
+			Values: []string{"application/x-protobuf"},
+		},
+	}
+	jsonRespHeaders = []*tripperware.PrometheusResponseHeader{
 		{
 			Name:   "Content-Type",
 			Values: []string{"application/x-protobuf"},

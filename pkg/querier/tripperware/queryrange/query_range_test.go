@@ -93,10 +93,10 @@ func TestRequest(t *testing.T) {
 func TestResponse(t *testing.T) {
 	t.Parallel()
 	r := *parsedResponse
-	r.Headers = respHeaders
+	r.Headers = protobufRespHeaders
 	for i, tc := range []struct {
-		promBody         *PrometheusResponse
-		expectedResponse string
+		promBody              *PrometheusResponse
+		expectedResponse      string
 		expectedDecodeErr     error
 		cancelCtxBeforeDecode bool
 	}{
@@ -111,38 +111,50 @@ func TestResponse(t *testing.T) {
 		},
 	} {
 		tc := tc
-		t.Run(strconv.Itoa(i), func(t *testing.T) {
-			t.Parallel()
-			protobuf, err := proto.Marshal(tc.promBody)
-			require.NoError(t, err)
-			ctx, cancelCtx := context.WithCancel(context.Background())
-			response := &http.Response{
-				StatusCode: 200,
-				Header:     http.Header{"Content-Type": []string{"application/x-protobuf"}},
-				Body:       io.NopCloser(bytes.NewBuffer(protobuf)),
-			}
-			if tc.cancelCtxBeforeDecode {
-				cancelCtx()
-			}
-			resp, err := PrometheusCodec.DecodeResponse(ctx, response, nil)
-			assert.Equal(t, tc.expectedDecodeErr, err)
-			if err != nil {
-				cancelCtx()
-				return
-			}
+		for _, enableProtobuf := range []bool{true, false} {
+			t.Run(fmt.Sprintf("protobuf encoding %t [%s]", enableProtobuf, strconv.Itoa(i)), func(t *testing.T) {
+				t.Parallel()
+				codec := NewPrometheusCodec(false, "", enableProtobuf)
+				var h http.Header
+				var b []byte
+				var err error
+				if enableProtobuf {
+					tc.promBody.Headers = protobufRespHeaders
+					b, err = proto.Marshal(tc.promBody)
+				} else {
+					tc.promBody.Headers = jsonRespHeaders
+					b, err = json.Marshal(tc.promBody)
+				}
+				require.NoError(t, err)
+				ctx, cancelCtx := context.WithCancel(context.Background())
+				response := &http.Response{
+					StatusCode: 200,
+					Header:     h,
+					Body:       io.NopCloser(bytes.NewBuffer(b)),
+				}
+				if tc.cancelCtxBeforeDecode {
+					cancelCtx()
+				}
+				resp, err := codec.DecodeResponse(ctx, response, nil)
+				assert.Equal(t, tc.expectedDecodeErr, err)
+				if err != nil {
+					cancelCtx()
+					return
+				}
 
-			// Reset response, as the above call will have consumed the body reader.
-			response = &http.Response{
-				StatusCode:    200,
-				Header:        http.Header{"Content-Type": []string{"application/json"}},
-				Body:          io.NopCloser(bytes.NewBuffer([]byte(tc.expectedResponse))),
-				ContentLength: int64(len(tc.expectedResponse)),
-			}
-			resp2, err := PrometheusCodec.EncodeResponse(context.Background(), resp)
-			require.NoError(t, err)
-			assert.Equal(t, response, resp2)
-			cancelCtx()
-		})
+				// Reset response, as the above call will have consumed the body reader.
+				response = &http.Response{
+					StatusCode:    200,
+					Header:        http.Header{"Content-Type": []string{"application/json"}},
+					Body:          io.NopCloser(bytes.NewBuffer([]byte(tc.expectedResponse))),
+					ContentLength: int64(len(tc.expectedResponse)),
+				}
+				resp2, err := codec.EncodeResponse(context.Background(), resp)
+				require.NoError(t, err)
+				assert.Equal(t, response, resp2)
+				cancelCtx()
+			})
+		}
 	}
 }
 
@@ -183,30 +195,43 @@ func TestResponseWithStats(t *testing.T) {
 		},
 	} {
 		tc := tc
-		t.Run(strconv.Itoa(i), func(t *testing.T) {
-			t.Parallel()
-			tc.promBody.Headers = respHeaders
-			protobuf, err := proto.Marshal(tc.promBody)
-			require.NoError(t, err)
-			response := &http.Response{
-				StatusCode: 200,
-				Header:     http.Header{"Content-Type": []string{"application/x-protobuf"}},
-				Body:       io.NopCloser(bytes.NewBuffer(protobuf)),
-			}
-			resp, err := PrometheusCodec.DecodeResponse(context.Background(), response, nil)
-			require.NoError(t, err)
+		for _, enableProtobuf := range []bool{true, false} {
+			t.Run(fmt.Sprintf("protobuf encoding %t [%s]", enableProtobuf, strconv.Itoa(i)), func(t *testing.T) {
+				t.Parallel()
+				codec := NewPrometheusCodec(false, "", enableProtobuf)
+				var h http.Header
+				var b []byte
+				var err error
+				if enableProtobuf {
+					tc.promBody.Headers = protobufRespHeaders
+					b, err = proto.Marshal(tc.promBody)
+					h = http.Header{"Content-Type": []string{"application/x-protobuf"}}
+				} else {
+					tc.promBody.Headers = jsonRespHeaders
+					b, err = json.Marshal(tc.promBody)
+					h = http.Header{"Content-Type": []string{"application/json"}}
+				}
+				require.NoError(t, err)
+				response := &http.Response{
+					StatusCode: 200,
+					Header:     h,
+					Body:       io.NopCloser(bytes.NewBuffer(b)),
+				}
+				resp, err := codec.DecodeResponse(context.Background(), response, nil)
+				require.NoError(t, err)
 
-			// Reset response, as the above call will have consumed the body reader.
-			response = &http.Response{
-				StatusCode:    200,
-				Header:        http.Header{"Content-Type": []string{"application/json"}},
-				Body:          io.NopCloser(bytes.NewBuffer([]byte(tc.expectedResponse))),
-				ContentLength: int64(len(tc.expectedResponse)),
-			}
-			resp2, err := PrometheusCodec.EncodeResponse(context.Background(), resp)
-			require.NoError(t, err)
-			assert.Equal(t, response, resp2)
-		})
+				// Reset response, as the above call will have consumed the body reader.
+				response = &http.Response{
+					StatusCode:    200,
+					Header:        http.Header{"Content-Type": []string{"application/json"}},
+					Body:          io.NopCloser(bytes.NewBuffer([]byte(tc.expectedResponse))),
+					ContentLength: int64(len(tc.expectedResponse)),
+				}
+				resp2, err := codec.EncodeResponse(context.Background(), resp)
+				require.NoError(t, err)
+				assert.Equal(t, response, resp2)
+			})
+		}
 	}
 }
 
@@ -742,7 +767,7 @@ func TestCompressedResponse(t *testing.T) {
 		err         error
 	}{
 		{
-			name:        `successful response`,
+			name:        `protobuf successful response`,
 			compression: `gzip`,
 			promBody: &PrometheusResponse{
 				Status: StatusSuccess,
@@ -773,7 +798,7 @@ func TestCompressedResponse(t *testing.T) {
 			status: 200,
 		},
 		{
-			name:        `successful response`,
+			name:        `protobuf successful response`,
 			compression: `snappy`,
 			promBody: &PrometheusResponse{
 				Status: StatusSuccess,
@@ -802,6 +827,18 @@ func TestCompressedResponse(t *testing.T) {
 				},
 			},
 			status: 200,
+		},
+		{
+			name:        `successful response`,
+			compression: `gzip`,
+			jsonBody:    `{"status":"success","data":{"resultType":"matrix","result":[{"metric":{"a":"b","c":"d"},"values":[[2,"2"],[3,"3"]]}],"stats":{"samples":{"totalQueryableSamples":20,"totalQueryableSamplesPerStep":[[2,2],[3,3]]}}}}`,
+			status:      200,
+		},
+		{
+			name:        `successful response`,
+			compression: `snappy`,
+			jsonBody:    `{"status":"success","data":{"resultType":"matrix","result":[{"metric":{"a":"b","c":"d"},"values":[[2,"2"],[3,"3"]]}],"stats":{"samples":{"totalQueryableSamples":20,"totalQueryableSamplesPerStep":[[2,2],[3,3]]}}}}`,
+			status:      200,
 		},
 		{
 			name:        `400 error`,
@@ -834,12 +871,13 @@ func TestCompressedResponse(t *testing.T) {
 			c := c
 			t.Run(fmt.Sprintf("%s compressed %t [%s]", tc.compression, c, tc.name), func(t *testing.T) {
 				t.Parallel()
+				enableProtobuf := tc.promBody != nil
+				codec := NewPrometheusCodec(false, "", enableProtobuf)
 				h := http.Header{}
 				var b []byte
-				if tc.promBody != nil {
-					protobuf, err := proto.Marshal(tc.promBody)
-					b = protobuf
-					require.NoError(t, err)
+				var err error
+				if enableProtobuf {
+					b, err = proto.Marshal(tc.promBody)
 					h.Set("Content-Type", "application/x-protobuf")
 				} else {
 					b = []byte(tc.jsonBody)
@@ -869,7 +907,7 @@ func TestCompressedResponse(t *testing.T) {
 					Header:     h,
 					Body:       io.NopCloser(responseBody),
 				}
-				resp, err := PrometheusCodec.DecodeResponse(context.Background(), response, nil)
+				resp, err := codec.DecodeResponse(context.Background(), response, nil)
 				require.Equal(t, tc.err, err)
 
 				if err == nil {

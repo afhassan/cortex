@@ -26,7 +26,6 @@ import (
 func TestRequest(t *testing.T) {
 	t.Parallel()
 	codec := InstantQueryCodec
-
 	for _, tc := range []struct {
 		url         string
 		expectedURL string
@@ -115,7 +114,7 @@ func TestCompressedResponse(t *testing.T) {
 		err         error
 	}{
 		{
-			name:        "successful response",
+			name:        "protobuf successful response",
 			compression: "gzip",
 			promBody: &PrometheusInstantQueryResponse{
 				Status: "success",
@@ -123,15 +122,11 @@ func TestCompressedResponse(t *testing.T) {
 					ResultType: model.ValString.String(),
 					Result:     PrometheusInstantQueryResult{Result: &PrometheusInstantQueryResult_RawBytes{[]byte(`{"resultType":"string","result":[1,"foo"]}`)}},
 				},
-				Headers: []*tripperware.PrometheusResponseHeader{
-					{Name: "Content-Type", Values: []string{"application/x-protobuf"}},
-					{Name: "Content-Encoding", Values: []string{"gzip"}},
-				},
 			},
 			status: 200,
 		},
 		{
-			name:        "successful response",
+			name:        "protobuf successful response",
 			compression: "snappy",
 			promBody: &PrometheusInstantQueryResponse{
 				Status: "success",
@@ -139,12 +134,20 @@ func TestCompressedResponse(t *testing.T) {
 					ResultType: model.ValString.String(),
 					Result:     PrometheusInstantQueryResult{Result: &PrometheusInstantQueryResult_RawBytes{[]byte(`{"resultType":"string","result":[1,"foo"]}`)}},
 				},
-				Headers: []*tripperware.PrometheusResponseHeader{
-					{Name: "Content-Type", Values: []string{"application/x-protobuf"}},
-					{Name: "Content-Encoding", Values: []string{"snappy"}},
-				},
 			},
 			status: 200,
+		},
+		{
+			name:        `successful response`,
+			compression: `gzip`,
+			jsonBody:    `{"status":"success","data":{"resultType":"string","result":[1,"foo"]}}`,
+			status:      200,
+		},
+		{
+			name:        `successful response`,
+			compression: `snappy`,
+			jsonBody:    `{"status":"success","data":{"resultType":"string","result":[1,"foo"]}}`,
+			status:      200,
 		},
 		{
 			name:        `400 error`,
@@ -177,17 +180,19 @@ func TestCompressedResponse(t *testing.T) {
 			c := c
 			t.Run(fmt.Sprintf("%s compressed %t [%s]", tc.compression, c, tc.name), func(t *testing.T) {
 				t.Parallel()
+				enableProtobuf := tc.promBody != nil
+				codec := NewInstantQueryCodec("", enableProtobuf)
 				h := http.Header{}
 				var b []byte
-				if tc.promBody != nil {
-					protobuf, err := proto.Marshal(tc.promBody)
-					b = protobuf
-					require.NoError(t, err)
+				var err error
+				if enableProtobuf {
+					b, err = proto.Marshal(tc.promBody)
 					h.Set("Content-Type", "application/x-protobuf")
 				} else {
 					b = []byte(tc.jsonBody)
 					h.Set("Content-Type", "application/json")
 				}
+				require.NoError(t, err)
 				responseBody := bytes.NewBuffer(b)
 
 				var buf bytes.Buffer
@@ -212,7 +217,7 @@ func TestCompressedResponse(t *testing.T) {
 					Header:     h,
 					Body:       io.NopCloser(responseBody),
 				}
-				resp, err := InstantQueryCodec.DecodeResponse(context.Background(), response, nil)
+				resp, err := codec.DecodeResponse(context.Background(), response, nil)
 				require.Equal(t, tc.err, err)
 
 				if err == nil {
@@ -238,9 +243,6 @@ func TestResponse(t *testing.T) {
 					ResultType: model.ValString.String(),
 					Result:     PrometheusInstantQueryResult{Result: &PrometheusInstantQueryResult_RawBytes{[]byte(`{"resultType":"string","result":[1,"foo"]}`)}},
 				},
-				Headers: []*tripperware.PrometheusResponseHeader{
-					{Name: "Content-Type", Values: []string{"application/x-protobuf"}},
-				},
 			},
 		},
 		{
@@ -250,9 +252,6 @@ func TestResponse(t *testing.T) {
 				Data: PrometheusInstantQueryData{
 					ResultType: model.ValString.String(),
 					Result:     PrometheusInstantQueryResult{Result: &PrometheusInstantQueryResult_RawBytes{[]byte(`{"resultType":"string","result":[1,"foo"],"stats":{"samples":{"totalQueryableSamples":10,"totalQueryableSamplesPerStep":[[1536673680,5],[1536673780,5]]}}}`)}},
-				},
-				Headers: []*tripperware.PrometheusResponseHeader{
-					{Name: "Content-Type", Values: []string{"application/x-protobuf"}},
 				},
 			},
 		},
@@ -289,9 +288,6 @@ func TestResponse(t *testing.T) {
 						},
 					},
 				},
-				Headers: []*tripperware.PrometheusResponseHeader{
-					{Name: "Content-Type", Values: []string{"application/x-protobuf"}},
-				},
 			},
 		},
 		{
@@ -318,9 +314,6 @@ func TestResponse(t *testing.T) {
 						},
 					},
 				},
-				Headers: []*tripperware.PrometheusResponseHeader{
-					{Name: "Content-Type", Values: []string{"application/x-protobuf"}},
-				},
 			},
 		},
 		{
@@ -330,9 +323,6 @@ func TestResponse(t *testing.T) {
 				Data: PrometheusInstantQueryData{
 					ResultType: model.ValString.String(),
 					Result:     PrometheusInstantQueryResult{Result: &PrometheusInstantQueryResult_RawBytes{[]byte(`{"resultType":"scalar","result":[1,"13"]}`)}},
-				},
-				Headers: []*tripperware.PrometheusResponseHeader{
-					{Name: "Content-Type", Values: []string{"application/x-protobuf"}},
 				},
 			},
 		},
@@ -355,37 +345,46 @@ func TestResponse(t *testing.T) {
 						},
 					},
 				},
-				Headers: []*tripperware.PrometheusResponseHeader{
-					{Name: "Content-Type", Values: []string{"application/x-protobuf"}},
-				},
 			},
 		},
 	} {
 		tc := tc
-		t.Run(strconv.Itoa(i), func(t *testing.T) {
-			t.Parallel()
-			protobuf, err := proto.Marshal(tc.promBody)
-			require.NoError(t, err)
+		for _, enableProtobuf := range []bool{true, false} {
+			t.Run(fmt.Sprintf("protobuf encoding %t [%s]", enableProtobuf, strconv.Itoa(i)), func(t *testing.T) {
+				t.Parallel()
+				codec := NewInstantQueryCodec("", enableProtobuf)
+				var h http.Header
+				var b []byte
+				var err error
+				if enableProtobuf {
+					b, err = proto.Marshal(tc.promBody)
+					h = http.Header{"Content-Type": []string{"application/x-protobuf"}}
+				} else {
+					b, err = json.Marshal(tc.promBody)
+					h = http.Header{"Content-Type": []string{"application/json"}}
+				}
+				require.NoError(t, err)
 
-			response := &http.Response{
-				StatusCode: 200,
-				Header:     http.Header{"Content-Type": []string{"application/x-protobuf"}},
-				Body:       io.NopCloser(bytes.NewBuffer(protobuf)),
-			}
-			resp, err := InstantQueryCodec.DecodeResponse(context.Background(), response, nil)
-			require.NoError(t, err)
+				response := &http.Response{
+					StatusCode: 200,
+					Header:     h,
+					Body:       io.NopCloser(bytes.NewBuffer(b)),
+				}
+				resp, err := codec.DecodeResponse(context.Background(), response, nil)
+				require.NoError(t, err)
 
-			// Reset response, as the above call will have consumed the body reader.
-			response = &http.Response{
-				StatusCode:    200,
-				Header:        http.Header{"Content-Type": []string{"application/json"}},
-				Body:          io.NopCloser(bytes.NewBuffer([]byte(tc.expectedResp))),
-				ContentLength: int64(len(tc.expectedResp)),
-			}
-			resp2, err := InstantQueryCodec.EncodeResponse(context.Background(), resp)
-			require.NoError(t, err)
-			assert.Equal(t, response, resp2)
-		})
+				// Reset response, as the above call will have consumed the body reader.
+				response = &http.Response{
+					StatusCode:    200,
+					Header:        http.Header{"Content-Type": []string{"application/json"}},
+					Body:          io.NopCloser(bytes.NewBuffer([]byte(tc.expectedResp))),
+					ContentLength: int64(len(tc.expectedResp)),
+				}
+				resp2, err := codec.EncodeResponse(context.Background(), resp)
+				require.NoError(t, err)
+				assert.Equal(t, response, resp2)
+			})
+		}
 	}
 }
 
@@ -420,9 +419,6 @@ func TestMergeResponse(t *testing.T) {
 							},
 						},
 					},
-					Headers: []*tripperware.PrometheusResponseHeader{
-						{Name: "Content-Type", Values: []string{"application/x-protobuf"}},
-					},
 				},
 			},
 			expectedResp: `{"status":"success","data":{"resultType":"vector","result":[]}}`,
@@ -448,9 +444,6 @@ func TestMergeResponse(t *testing.T) {
 								TotalQueryableSamples:        0,
 							},
 						},
-					},
-					Headers: []*tripperware.PrometheusResponseHeader{
-						{Name: "Content-Type", Values: []string{"application/x-protobuf"}},
 					},
 				},
 			},
@@ -478,9 +471,6 @@ func TestMergeResponse(t *testing.T) {
 								},
 							},
 						},
-					},
-					Headers: []*tripperware.PrometheusResponseHeader{
-						{Name: "Content-Type", Values: []string{"application/x-protobuf"}},
 					},
 				},
 			},
@@ -517,9 +507,6 @@ func TestMergeResponse(t *testing.T) {
 							},
 						},
 					},
-					Headers: []*tripperware.PrometheusResponseHeader{
-						{Name: "Content-Type", Values: []string{"application/x-protobuf"}},
-					},
 				},
 			},
 			expectedResp: `{"status":"success","data":{"resultType":"vector","result":[{"metric":{"__name__":"up"},"value":[1,"1"]}],"stats":{"samples":{"totalQueryableSamples":10,"totalQueryableSamplesPerStep":[[1,10]]}}}}`,
@@ -547,9 +534,6 @@ func TestMergeResponse(t *testing.T) {
 							},
 						},
 					},
-					Headers: []*tripperware.PrometheusResponseHeader{
-						{Name: "Content-Type", Values: []string{"application/x-protobuf"}},
-					},
 				},
 				{
 					Status: "success",
@@ -569,9 +553,6 @@ func TestMergeResponse(t *testing.T) {
 								},
 							},
 						},
-					},
-					Headers: []*tripperware.PrometheusResponseHeader{
-						{Name: "Content-Type", Values: []string{"application/x-protobuf"}},
 					},
 				},
 			},
@@ -608,9 +589,6 @@ func TestMergeResponse(t *testing.T) {
 							},
 						},
 					},
-					Headers: []*tripperware.PrometheusResponseHeader{
-						{Name: "Content-Type", Values: []string{"application/x-protobuf"}},
-					},
 				},
 				{
 					Status: "success",
@@ -638,9 +616,6 @@ func TestMergeResponse(t *testing.T) {
 								TotalQueryableSamples: 10,
 							},
 						},
-					},
-					Headers: []*tripperware.PrometheusResponseHeader{
-						{Name: "Content-Type", Values: []string{"application/x-protobuf"}},
 					},
 				},
 			},
@@ -670,9 +645,6 @@ func TestMergeResponse(t *testing.T) {
 							},
 						},
 					},
-					Headers: []*tripperware.PrometheusResponseHeader{
-						{Name: "Content-Type", Values: []string{"application/x-protobuf"}},
-					},
 				},
 				{
 					Status: "success",
@@ -693,9 +665,6 @@ func TestMergeResponse(t *testing.T) {
 								},
 							},
 						},
-					},
-					Headers: []*tripperware.PrometheusResponseHeader{
-						{Name: "Content-Type", Values: []string{"application/x-protobuf"}},
 					},
 				},
 			},
@@ -725,9 +694,6 @@ func TestMergeResponse(t *testing.T) {
 							},
 						},
 					},
-					Headers: []*tripperware.PrometheusResponseHeader{
-						{Name: "Content-Type", Values: []string{"application/x-protobuf"}},
-					},
 				},
 				{
 					Status: "success",
@@ -748,9 +714,6 @@ func TestMergeResponse(t *testing.T) {
 								},
 							},
 						},
-					},
-					Headers: []*tripperware.PrometheusResponseHeader{
-						{Name: "Content-Type", Values: []string{"application/x-protobuf"}},
 					},
 				},
 			},
@@ -780,9 +743,6 @@ func TestMergeResponse(t *testing.T) {
 							},
 						},
 					},
-					Headers: []*tripperware.PrometheusResponseHeader{
-						{Name: "Content-Type", Values: []string{"application/x-protobuf"}},
-					},
 				},
 				{
 					Status: "success",
@@ -803,9 +763,6 @@ func TestMergeResponse(t *testing.T) {
 								},
 							},
 						},
-					},
-					Headers: []*tripperware.PrometheusResponseHeader{
-						{Name: "Content-Type", Values: []string{"application/x-protobuf"}},
 					},
 				},
 			},
@@ -835,9 +792,6 @@ func TestMergeResponse(t *testing.T) {
 							},
 						},
 					},
-					Headers: []*tripperware.PrometheusResponseHeader{
-						{Name: "Content-Type", Values: []string{"application/x-protobuf"}},
-					},
 				},
 				{
 					Status: "success",
@@ -858,9 +812,6 @@ func TestMergeResponse(t *testing.T) {
 								},
 							},
 						},
-					},
-					Headers: []*tripperware.PrometheusResponseHeader{
-						{Name: "Content-Type", Values: []string{"application/x-protobuf"}},
 					},
 				},
 			},
@@ -898,9 +849,6 @@ func TestMergeResponse(t *testing.T) {
 							},
 						},
 					},
-					Headers: []*tripperware.PrometheusResponseHeader{
-						{Name: "Content-Type", Values: []string{"application/x-protobuf"}},
-					},
 				},
 				{
 					Status: "success",
@@ -930,9 +878,6 @@ func TestMergeResponse(t *testing.T) {
 							},
 						},
 					},
-					Headers: []*tripperware.PrometheusResponseHeader{
-						{Name: "Content-Type", Values: []string{"application/x-protobuf"}},
-					},
 				},
 			},
 			expectedResp: `{"status":"success","data":{"resultType":"vector","result":[{"metric":{"__name__":"up","job":"bar"},"value":[2,"2"]},{"metric":{"__name__":"up","job":"foo"},"value":[1,"1"]}],"stats":{"samples":{"totalQueryableSamples":20,"totalQueryableSamplesPerStep":[[1,20]]}}}}`,
@@ -951,9 +896,6 @@ func TestMergeResponse(t *testing.T) {
 							},
 						},
 					},
-					Headers: []*tripperware.PrometheusResponseHeader{
-						{Name: "Content-Type", Values: []string{"application/x-protobuf"}},
-					},
 				},
 				{
 					Status: "success",
@@ -964,9 +906,6 @@ func TestMergeResponse(t *testing.T) {
 								RawBytes: []byte(`{"resultType":"string","result":[1662682521.409,"foo"]}`),
 							},
 						},
-					},
-					Headers: []*tripperware.PrometheusResponseHeader{
-						{Name: "Content-Type", Values: []string{"application/x-protobuf"}},
 					},
 				},
 			},
@@ -998,9 +937,6 @@ func TestMergeResponse(t *testing.T) {
 							},
 						},
 					},
-					Headers: []*tripperware.PrometheusResponseHeader{
-						{Name: "Content-Type", Values: []string{"application/x-protobuf"}},
-					},
 				},
 			},
 			expectedResp: `{"status":"success","data":{"resultType":"matrix","result":[{"metric":{"__name__":"up"},"values":[[1,"1"],[2,"2"]]}]}}`,
@@ -1031,9 +967,6 @@ func TestMergeResponse(t *testing.T) {
 							},
 						},
 					},
-					Headers: []*tripperware.PrometheusResponseHeader{
-						{Name: "Content-Type", Values: []string{"application/x-protobuf"}},
-					},
 				},
 				{
 					Status: "success",
@@ -1056,9 +989,6 @@ func TestMergeResponse(t *testing.T) {
 								},
 							},
 						},
-					},
-					Headers: []*tripperware.PrometheusResponseHeader{
-						{Name: "Content-Type", Values: []string{"application/x-protobuf"}},
 					},
 				},
 			},
@@ -1090,9 +1020,6 @@ func TestMergeResponse(t *testing.T) {
 							},
 						},
 					},
-					Headers: []*tripperware.PrometheusResponseHeader{
-						{Name: "Content-Type", Values: []string{"application/x-protobuf"}},
-					},
 				},
 				{
 					Status: "success",
@@ -1114,9 +1041,6 @@ func TestMergeResponse(t *testing.T) {
 								},
 							},
 						},
-					},
-					Headers: []*tripperware.PrometheusResponseHeader{
-						{Name: "Content-Type", Values: []string{"application/x-protobuf"}},
 					},
 				},
 			},
@@ -1148,9 +1072,6 @@ func TestMergeResponse(t *testing.T) {
 							},
 						},
 					},
-					Headers: []*tripperware.PrometheusResponseHeader{
-						{Name: "Content-Type", Values: []string{"application/x-protobuf"}},
-					},
 				},
 				{
 					Status: "success",
@@ -1174,9 +1095,6 @@ func TestMergeResponse(t *testing.T) {
 								},
 							},
 						},
-					},
-					Headers: []*tripperware.PrometheusResponseHeader{
-						{Name: "Content-Type", Values: []string{"application/x-protobuf"}},
 					},
 				},
 			},
@@ -1206,9 +1124,6 @@ func TestMergeResponse(t *testing.T) {
 							},
 						},
 					},
-					Headers: []*tripperware.PrometheusResponseHeader{
-						{Name: "Content-Type", Values: []string{"application/x-protobuf"}},
-					},
 				},
 				{
 					Status: "success",
@@ -1229,9 +1144,6 @@ func TestMergeResponse(t *testing.T) {
 								},
 							},
 						},
-					},
-					Headers: []*tripperware.PrometheusResponseHeader{
-						{Name: "Content-Type", Values: []string{"application/x-protobuf"}},
 					},
 				},
 			},
@@ -1262,9 +1174,6 @@ func TestMergeResponse(t *testing.T) {
 							},
 						},
 					},
-					Headers: []*tripperware.PrometheusResponseHeader{
-						{Name: "Content-Type", Values: []string{"application/x-protobuf"}},
-					},
 				},
 				{
 					Status: "success",
@@ -1286,9 +1195,6 @@ func TestMergeResponse(t *testing.T) {
 							},
 						},
 					},
-					Headers: []*tripperware.PrometheusResponseHeader{
-						{Name: "Content-Type", Values: []string{"application/x-protobuf"}},
-					},
 				},
 			},
 			expectedErr:       context.Canceled,
@@ -1296,47 +1202,60 @@ func TestMergeResponse(t *testing.T) {
 		},
 	} {
 		tc := tc
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			ctx, cancelCtx := context.WithCancel(context.Background())
+		for _, enableProtobuf := range []bool{true, false} {
+			t.Run(fmt.Sprintf("protobuf encoding %t [%s]", enableProtobuf, tc.name), func(t *testing.T) {
+				t.Parallel()
+				codec := NewInstantQueryCodec("", enableProtobuf)
+				ctx, cancelCtx := context.WithCancel(context.Background())
 
-			var resps []tripperware.Response
-			for _, r := range tc.resps {
-				protobuf, err := proto.Marshal(r)
-				hr := &http.Response{
-					StatusCode: 200,
-					Header:     http.Header{"Content-Type": []string{"application/x-protobuf"}},
-					Body:       io.NopCloser(bytes.NewBuffer(protobuf)),
+				var resps []tripperware.Response
+				for _, r := range tc.resps {
+					var h http.Header
+					var b []byte
+					var err error
+					if enableProtobuf {
+						b, err = proto.Marshal(r)
+						h = http.Header{"Content-Type": []string{"application/x-protobuf"}}
+					} else {
+						b, err = json.Marshal(r)
+						h = http.Header{"Content-Type": []string{"application/json"}}
+					}
+					hr := &http.Response{
+						StatusCode: 200,
+						Header:     h,
+						Body:       io.NopCloser(bytes.NewBuffer(b)),
+					}
+
+					if tc.cancelBeforeDecode {
+						cancelCtx()
+					}
+
+					dr, err := codec.DecodeResponse(ctx, hr, nil)
+					assert.Equal(t, tc.expectedDecodeErr, err)
+					if err != nil {
+						cancelCtx()
+						return
+					}
+					resps = append(resps, dr)
 				}
 
-				if tc.cancelBeforeDecode {
+				if tc.cancelBeforeMerge {
 					cancelCtx()
 				}
-				dr, err := InstantQueryCodec.DecodeResponse(ctx, hr, nil)
-				assert.Equal(t, tc.expectedDecodeErr, err)
+				resp, err := codec.MergeResponse(ctx, tc.req, resps...)
+				assert.Equal(t, tc.expectedErr, err)
 				if err != nil {
 					cancelCtx()
 					return
 				}
-				resps = append(resps, dr)
-			}
-
-			if tc.cancelBeforeMerge {
+				dr, err := codec.EncodeResponse(ctx, resp)
+				assert.Equal(t, tc.expectedErr, err)
+				contents, err := io.ReadAll(dr.Body)
+				assert.Equal(t, tc.expectedErr, err)
+				assert.Equal(t, tc.expectedResp, string(contents))
 				cancelCtx()
-			}
-			resp, err := InstantQueryCodec.MergeResponse(ctx, tc.req, resps...)
-			assert.Equal(t, tc.expectedErr, err)
-			if err != nil {
-				cancelCtx()
-				return
-			}
-			dr, err := InstantQueryCodec.EncodeResponse(ctx, resp)
-			assert.Equal(t, tc.expectedErr, err)
-			contents, err := io.ReadAll(dr.Body)
-			assert.Equal(t, tc.expectedErr, err)
-			assert.Equal(t, tc.expectedResp, string(contents))
-			cancelCtx()
-		})
+			})
+		}
 	}
 }
 
@@ -1436,35 +1355,43 @@ func Benchmark_Decode(b *testing.B) {
 			sampleStream: samples[:1000000],
 		},
 	} {
-		b.Run(name, func(b *testing.B) {
-			r := PrometheusInstantQueryResponse{
-				Data: PrometheusInstantQueryData{
-					ResultType: model.ValMatrix.String(),
-					Result: PrometheusInstantQueryResult{
-						Result: &PrometheusInstantQueryResult_Matrix{
-							Matrix: &Matrix{
-								SampleStreams: tc.sampleStream,
+		for _, enableProtobuf := range []bool{true, false} {
+			b.Run(fmt.Sprintf("protobuf encoding %t [%s]", enableProtobuf, name), func(b *testing.B) {
+				codec := NewInstantQueryCodec("", enableProtobuf)
+				r := PrometheusInstantQueryResponse{
+					Data: PrometheusInstantQueryData{
+						ResultType: model.ValMatrix.String(),
+						Result: PrometheusInstantQueryResult{
+							Result: &PrometheusInstantQueryResult_Matrix{
+								Matrix: &Matrix{
+									SampleStreams: tc.sampleStream,
+								},
 							},
 						},
 					},
-				},
-			}
-
-			body, err := proto.Marshal(&r)
-			require.NoError(b, err)
-
-			b.ResetTimer()
-			b.ReportAllocs()
-
-			for i := 0; i < b.N; i++ {
-				response := &http.Response{
-					StatusCode: 200,
-					Body:       io.NopCloser(bytes.NewBuffer(body)),
 				}
-				_, err := InstantQueryCodec.DecodeResponse(context.Background(), response, nil)
-				require.NoError(b, err)
-			}
-		})
-	}
 
+				var body []byte
+				var err error
+				if enableProtobuf {
+					body, err = proto.Marshal(&r)
+				} else {
+					body, err = json.Marshal(&r)
+				}
+				require.NoError(b, err)
+
+				b.ResetTimer()
+				b.ReportAllocs()
+
+				for i := 0; i < b.N; i++ {
+					response := &http.Response{
+						StatusCode: 200,
+						Body:       io.NopCloser(bytes.NewBuffer(body)),
+					}
+					_, err := codec.DecodeResponse(context.Background(), response, nil)
+					require.NoError(b, err)
+				}
+			})
+		}
+	}
 }

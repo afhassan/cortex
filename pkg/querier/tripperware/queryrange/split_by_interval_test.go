@@ -298,7 +298,7 @@ func TestSplitByDay(t *testing.T) {
 					http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 						actualCount.Inc()
 						resp := parsedResponse
-						resp.Headers = respHeaders
+						resp.Headers = protobufRespHeaders
 						protobuf, err := proto.Marshal(resp)
 						require.NoError(t, err)
 						_, _ = w.Write(protobuf)
